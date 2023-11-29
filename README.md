@@ -41,3 +41,7 @@ You must run on Linux because dynamo is not supported on Windows. You must also 
             features.append(x)
             return features
 ```
+
+### Todo
+* Fix data loader to fill inputs from many layer slices and read layer mask
+* Resize output and assemble final image.
