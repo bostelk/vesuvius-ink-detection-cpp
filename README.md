@@ -43,5 +43,5 @@ You must run on Linux because dynamo is not supported on Windows. You must also 
 ```
 
 ### Todo
-* Fix data loader to fill inputs from many layer slices and read layer mask
-* Resize output and assemble final image.
+* Fix data loader to fill inputs from many layer slices (batch size ???)
+* Review gaussian filter and scale factor in predictions.

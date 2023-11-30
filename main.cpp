@@ -2,8 +2,17 @@
 #include <onnxruntime_cxx_api.h>
 #include <algorithm>
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
+
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include <stb_image_resize2.h>
 
 #include <tiff.h>
 #include <tiffio.h>
@@ -77,8 +86,9 @@ private:
     std::array<int64_t, 4> output_shape_{ 1, 1, 8, 8 };
 };
 
-std::unique_ptr<YoussefInkDetection> mnist_;
+std::unique_ptr<YoussefInkDetection> inkDetection_;
 
+// A window of a slice to detect ink within.
 struct InputImage
 {
     static constexpr const int width = 32; // pixels
@@ -89,10 +99,43 @@ struct InputImage
     std::array<float, width * height * channels> pixels{}; // color data
 };
 
-// Clip to x1, y1, w1, h1
-InputImage ReadImageSliceToInputImage(std::string filename, int x1, int y1, int w1, int h1)
+
+// A generic image. Allocates heap memory on construction.
+struct Image
 {
-    InputImage image;
+    int width; // pixels
+    int height; // pixels
+    int channels; // rgb
+    size_t strideBytes() {
+        return channels * width * sizeof(uint8_t);
+    }
+    size_t sizeBytes() {
+        return height * strideBytes();
+    }
+    int pixelCount() {
+        return width * height;
+    }
+    uint8_t* pixels; // color data
+    uint8_t GetPixelGray(int x, int y) {
+        int pixelOffset = y * width + x;
+        return pixels[pixelOffset * channels + 0];
+    }
+    Image(int width_, int height_) : width(width_), height(height_), channels(3) {
+        pixels = (uint8_t*)malloc(sizeBytes());
+        memset(pixels, 0, sizeBytes());
+    }
+    Image(int width_, int height_, int channels_) : width(width_), height(height_), channels(channels_) {
+        pixels = (uint8_t*)malloc(sizeBytes());
+        memset(pixels, 0, sizeBytes());
+    }
+    ~Image() {
+        free(pixels);
+    }
+};
+
+std::unique_ptr<Image> ReadImageTIFF(std::string filename)
+{
+    std::unique_ptr<Image> image = nullptr;
 
     TIFF* tif = TIFFOpen(filename.c_str(), "r");
     if (tif) {
@@ -104,25 +147,24 @@ InputImage ReadImageSliceToInputImage(std::string filename, int x1, int y1, int 
         TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &h);
         npixels = w * h;
         raster = (uint32_t*)_TIFFmalloc(npixels * sizeof(uint32_t));
+        image = std::make_unique<Image>(w, h);
         if (raster != NULL) {
             if (TIFFReadRGBAImage(tif, w, h, raster, 0)) {
-                for (int y = y1; y < h && y < h1; y++)
+                for (int y = 0; y < h; y++)
                 {
-                    for (int x = x1; x < w && x < w1; x++)
+                    for (int x = 0; x < w; x++)
                     {
-                        int offset = y * w + x;
+                        int offset = (h - 1 - y) * w + x; // Invert y-axis.
                         uint32_t* pixel = raster + offset;
                         uint8_t a = (*pixel) >> 24;
                         uint8_t b = (*pixel) >> 16;
                         uint8_t g = (*pixel) >> 8;
                         uint8_t r = (*pixel) & 0x000000FF;
 
-                        int offset2 = (y - y1) * image.width + (x - x1);
-                        if (offset2 < image.pixelCount)
-                        {
-                            float intensity = r / (float)UINT8_MAX;
-                            image.pixels[offset2] = intensity;
-                        }
+                        int pixelOffset = y * image->width + x;
+                        image->pixels[pixelOffset * image->channels + 0] = r;
+                        image->pixels[pixelOffset * image->channels + 1] = g;
+                        image->pixels[pixelOffset * image->channels + 2] = b;
                     }
                 }
             }
@@ -134,22 +176,27 @@ InputImage ReadImageSliceToInputImage(std::string filename, int x1, int y1, int 
     return image;
 }
 
-void FillInput(InputImage& image)
+void CopyToInput(Image& image, int x0, int y0)
 {
-    float* output = mnist_->input_image_.data();
+    float* output = inkDetection_->input_image_.data();
 
-    std::fill(mnist_->input_image_.begin(), mnist_->input_image_.end(), 0.f);
+    std::fill(inkDetection_->input_image_.begin(), inkDetection_->input_image_.end(), 0.f);
 
-    for (unsigned y = 0; y < YoussefInkDetection::height_; y++) {
-        for (unsigned x = 0; x < YoussefInkDetection::width_; x++) {
-            int offset = y * image.width + x;
-            output[x] += image.pixels[offset];
+    for (int y = y0; y < y0 + YoussefInkDetection::height_; y++)
+    {
+        for (int x = x0; x < x0 + YoussefInkDetection::width_; x++)
+        {
+            uint8_t gray = image.GetPixelGray(x, y);
+            float intensity = gray / (float)UINT8_MAX;
+
+            int pixelOffset = (y - y0) * YoussefInkDetection::width_ + (x - x0);
+            output[pixelOffset] = intensity;
         }
-        output += YoussefInkDetection::width_;
     }
 }
 
-struct OutputImage
+// An ink detection result converted to an image.
+struct ResultImage
 {
     static constexpr const int width = 8; // pixels
     static constexpr const int height = 8; // pixels
@@ -159,19 +206,19 @@ struct OutputImage
     std::array<uint8_t, width * height * channels> pixels{}; // color data
 };
 
-OutputImage ConvertResultToOutputImage()
+ResultImage ConvertResultToImage()
 {
-    OutputImage image;
+    ResultImage image;
 
-    float* results = mnist_->results_.data();
+    float* results = inkDetection_->results_.data();
     for (unsigned y = 0; y < image.height; y++) {
         for (unsigned x = 0; x < image.width; x++) {
             float result = results[x];
-            uint8_t r = (uint8_t)roundf(result * UINT8_MAX);
-            int pixelOffset = y * image.height + x;
-            image.pixels[pixelOffset * image.channels + 0] = r;
-            image.pixels[pixelOffset * image.channels + 1] = r;
-            image.pixels[pixelOffset * image.channels + 2] = r;
+            uint8_t gray = (uint8_t)roundf(result * UINT8_MAX);
+            int pixelOffset = y * image.width + x;
+            image.pixels[pixelOffset * image.channels + 0] = gray;
+            image.pixels[pixelOffset * image.channels + 1] = gray;
+            image.pixels[pixelOffset * image.channels + 2] = gray;
         }
         results += image.width;
     }
@@ -179,17 +226,86 @@ OutputImage ConvertResultToOutputImage()
     return image;
 }
 
-void WriteResultToImage(std::string filename, OutputImage& image)
+std::unique_ptr<Image> ReadImage(std::string filename)
 {
-    int ret = stbi_write_png(filename.c_str(), image.width, image.height, image.channels, image.pixels.data(), image.strideBytes);
+    if (fs::path(filename).extension() == ".tif") {
+        return ReadImageTIFF(filename);
+    }
+    // else fallback to other formats.
+
+    int width;
+    int height;
+    int channels;
+
+    unsigned char* imgData = stbi_load(filename.c_str(), &width, &height, &channels, 0);
+    if (imgData != NULL) {
+        std::unique_ptr<Image> image = std::make_unique<Image>(width, height, channels);
+        memcpy(image->pixels, imgData, image->sizeBytes());
+        stbi_image_free(imgData);
+        return image;
+    } else {
+        return nullptr; // failed to load image.
+    }
+}
+
+void WriteImagePNG(std::string filename, Image& image)
+{
+    int ret = stbi_write_png(filename.c_str(), image.width, image.height, image.channels, image.pixels, image.strideBytes());
     assert(ret > 0); // success.
+}
+
+void WriteImage(std::string filename, Image& image)
+{
+    if (fs::path(filename).extension() == ".png") {
+        return WriteImagePNG(filename, image);
+    }
+    // else write other formats.
+    assert(false); // not implemented.
+}
+
+// Copy a source image into a destination image region located at (x0, y0).
+void CopyToImage(Image& src, Image& dst, int x0, int y0)
+{
+    for (int y = y0; y < y0 + src.height; y++)
+    {
+        for (int x = x0; x < x0 + src.width; x++)
+        {
+            int srcPixelOffset = (y - y0) * src.width + (x - x0);
+            int dstPixelOffset = y * dst.width + x;
+
+            dst.pixels[dstPixelOffset * dst.channels + 0] = src.pixels[srcPixelOffset * src.channels + 0];
+            dst.pixels[dstPixelOffset * dst.channels + 1] = src.pixels[srcPixelOffset * src.channels + 1];
+            dst.pixels[dstPixelOffset * dst.channels + 2] = src.pixels[srcPixelOffset * src.channels + 2];
+        }
+    }
+}
+
+void FillPixels(ResultImage& image, uint8_t red, uint8_t blue, uint8_t green)
+{
+    for (unsigned y = 0; y < image.height; y++) {
+        for (unsigned x = 0; x < image.width; x++) {
+            int pixelOffset = y * image.width + x;
+            image.pixels[pixelOffset * image.channels + 0] = red;
+            image.pixels[pixelOffset * image.channels + 1] = blue;
+            image.pixels[pixelOffset * image.channels + 2] = green;
+        }
+    }
+}
+
+std::unique_ptr<Image> ResizeImage(ResultImage& image, int width, int height)
+{
+    std::unique_ptr<Image> result = std::make_unique<Image>(width, height);
+    stbir_resize_uint8_linear(image.pixels.data(), image.width, image.height, image.strideBytes,
+        result->pixels, result->width, result->height, result->strideBytes(),
+        (stbir_pixel_layout)3);
+    return result;
 }
 
 int main()
 {
 	printf("hello world");
     try {
-        mnist_ = std::make_unique<YoussefInkDetection>();
+        inkDetection_ = std::make_unique<YoussefInkDetection>();
     }
     catch (const Ort::Exception& exception) {
         //MessageBoxA(nullptr, exception.what(), "Error:", MB_OK);
@@ -198,31 +314,45 @@ int main()
 
     // https://vesuvius.virtual-void.net/scroll/1/segment/20230827161847/#u=2524&v=4582&zoom=0.046&rot=90&flip=false&layer=34
 
-    int x = 0;
-    int y = 0;
+    int x0 = 1248;
+    int y0 = 9163 / 2;
     int sliceWidth = 5048;
     int sliceHeight = 9163;
 
-    int tileWidth = 32;
-    int tileHeight = 32;
+    Image image(sliceWidth, sliceHeight); // Allocates.
 
-    for (int y = 0; y < sliceWidth; y+=tileHeight)
+    for (int y = y0; y < sliceWidth; y+= YoussefInkDetection::width_)
     {
-        for (int x = 0; x < sliceWidth; x+=tileWidth)
+        for (int x = x0; x < sliceWidth; x+= YoussefInkDetection::height_)
         {
-            // Todo(kbostelmann): Read layer 15 until 45 (+30 slices). Fill into inputs.
-            auto inputImage = ReadImageSliceToInputImage("20230827161847/layers/15.tif", x, y, x + tileWidth, y + tileHeight);
-            FillInput(inputImage);
+            printf((std::to_string(x) + " " + std::to_string(y) + "\n").c_str());
 
-            mnist_->Run();
+            auto mask = ReadImage("20230827161847/20230827161847_mask.png");
+            if (!mask || mask->GetPixelGray(x, y) != 255)
+            {
+                continue; // Skip because pixel is not on papyrus.
+            }
 
-            auto outputImage = ConvertResultToOutputImage();
-            // Todo(kbostelmann): bilinear interpolate image resolution to 32x32.
+            // Todo(kbostelmann): Read layer x until y (+30 slices). Fill into inputs.
+            int initialLayerIndex = 15;
+            for (int layerIndex = initialLayerIndex; layerIndex < initialLayerIndex + 30; layerIndex++)
+            {
+                auto layer = ReadImage("20230827161847/layers/" + std::to_string(layerIndex) + ".tif");
+                if (layer) {
+                    CopyToInput(*layer, x, y);
+                }
+            }
 
-            std::string filename = "out_" + std::to_string(x) + "_" + std::to_string(y) + ".png";
-            WriteResultToImage(filename, outputImage);
+            inkDetection_->Run();
 
-            printf(filename.c_str());
+            auto imageTile = ConvertResultToImage();
+
+            // Resize to input resolution.
+            auto imageTileResized = ResizeImage(imageTile, YoussefInkDetection::width_, YoussefInkDetection::height_);
+
+            CopyToImage(*imageTileResized, image, x, y);
+            std::string filename = "out.png";
+            WriteImage(filename, image);
         }
     }
 }
