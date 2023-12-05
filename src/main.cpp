@@ -2,7 +2,7 @@
 #include <onnxruntime_cxx_api.h>
 #include <algorithm>
 
-#include "src/image.h"
+#include "image.h"
 
 template <typename T>
 static void softmax(T& input) {
