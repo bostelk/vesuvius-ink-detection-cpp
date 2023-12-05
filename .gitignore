@@ -399,3 +399,6 @@ FodyWeavers.xsd
 
 # Store dynamic link library files.
 !third-party/**/bin
+
+# Ignore scroll data.
+20230827161847
