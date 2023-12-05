@@ -108,6 +108,7 @@ int main()
         {
             printf((std::to_string(x) + " " + std::to_string(y) + "\n").c_str());
 
+            // Todo(kbostelmmann): Erode layer mask by a 16x16 kernel.
             auto mask = ReadImage("20230827161847/20230827161847_mask.png");
             if (!mask || mask->GetPixelGray(x, y) != 255)
             {
@@ -119,6 +120,7 @@ int main()
             int layerIndexDistance = 1;
             for (int layerIndex = initialLayerIndex; layerIndex < initialLayerIndex + layerIndexDistance; layerIndex++)
             {
+                // Todo(kbostelmann): Pad image to nearest tile boundary. Fill new pixels with zero.
                 auto layer = ReadImage("20230827161847/layers/" + std::to_string(layerIndex) + ".tif");
                 if (layer) {
                     ZeroInput();
@@ -133,6 +135,7 @@ int main()
             // Resize to input resolution.
             auto imageTileResized = ResizeImage(imageTile, YoussefInkDetection::width_, YoussefInkDetection::height_);
 
+            // Todo(kbostelmann): Accumulate predictions and then normalize.
             CopyToImage(*imageTileResized, image, x, y);
             std::string filename = "out.png";
             WriteImage(filename, image);
