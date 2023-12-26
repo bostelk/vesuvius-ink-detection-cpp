@@ -44,8 +44,8 @@ struct YoussefInkDetection {
     }
 
     std::ptrdiff_t Run() {
-        const char* input_names[] = { "arg0" };
-        const char* output_names[] = { "decoder_1" };
+        const char* input_names[] = { "onnx::Unsqueeze_0" };
+        const char* output_names[] = { "1860" };
 
         Ort::RunOptions run_options;
         //Ort::GetApi().RunOptionsSetRunLogSeverityLevel(run_options, 0); VERBOSE
@@ -64,7 +64,7 @@ struct YoussefInkDetection {
 
 private:
     Ort::Env env;
-    Ort::Session session_{ env, L"vesuvius-ink-detection.onnx", Ort::SessionOptions{nullptr} };
+    Ort::Session session_{ env, L"vesuvius-ink-detection-trace.onnx", Ort::SessionOptions{nullptr} };
 
     Ort::Value input_tensor_{ nullptr };
     std::array<int64_t, 4> input_shape_{ 1, 1, width_, height_ };
