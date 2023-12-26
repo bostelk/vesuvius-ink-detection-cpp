@@ -55,11 +55,11 @@ struct YoussefInkDetection {
         return result_;
     }
 
-    static constexpr const int width_ = 32;
-    static constexpr const int height_ = 32;
+    static constexpr const int width_ = 64;
+    static constexpr const int height_ = 64;
 
     std::array<float, width_* height_> input_image_{};
-    std::array<float, 8 * 8> results_{};
+    std::array<float, 16 * 16> results_{};
     int64_t result_{ 0 };
 
 private:
@@ -70,7 +70,7 @@ private:
     std::array<int64_t, 4> input_shape_{ 1, 1, width_, height_ };
 
     Ort::Value output_tensor_{ nullptr };
-    std::array<int64_t, 4> output_shape_{ 1, 1, 8, 8 };
+    std::array<int64_t, 4> output_shape_{ 1, 1, 16, 16 };
 };
 
 std::unique_ptr<YoussefInkDetection> inkDetection_;

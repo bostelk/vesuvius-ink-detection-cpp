@@ -13,10 +13,10 @@ struct ImageTile
 };
 
 // A window of a slice to detect ink within.
-typedef ImageTile<float, 32, 1> InputImage;
+typedef ImageTile<float, 64, 1> InputImage;
 
 // An ink detection result converted to an image.
-typedef ImageTile<uint8_t, 8, 3> ResultImage;
+typedef ImageTile<uint8_t, 16, 3> ResultImage;
 
 // A generic image. Allocates heap memory on construction.
 struct Image
