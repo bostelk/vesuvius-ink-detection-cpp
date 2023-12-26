@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Shared Files">
+      <UniqueIdentifier>{9fefd122-494d-42ba-a6df-f32223fa25db}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\image.cpp">
@@ -26,5 +29,25 @@
     <ClInclude Include="src\image.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="third-party\libtiff-3.8.2\bin\tiff.dll">
+      <Filter>Shared Files</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="third-party\libtiff-3.8.2\bin\jpeg62.dll">
+      <Filter>Shared Files</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="third-party\libtiff-3.8.2\bin\liblzma.dll">
+      <Filter>Shared Files</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="third-party\libtiff-3.8.2\bin\zlib1.dll">
+      <Filter>Shared Files</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="third-party\onnxruntime-win-x64-1.16.3\lib\onnxruntime_providers_shared.dll">
+      <Filter>Shared Files</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="third-party\onnxruntime-win-x64-1.16.3\lib\onnxruntime.dll">
+      <Filter>Shared Files</Filter>
+    </CopyFileToFolders>
   </ItemGroup>
 </Project>
